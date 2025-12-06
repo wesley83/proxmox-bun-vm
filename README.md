@@ -1,136 +1,106 @@
-# **Proxmox Bun VM Auto-Provisioning Script**
-
-This repository provides a **one-command installer** that automatically creates a fully configured **Bun-ready Linux VM** on Proxmox VE, similar to the community scripts at [community-scripts.github.io/ProxmoxVE](https://community-scripts.github.io/ProxmoxVE/).
-
-Simply run one command on your Proxmox node, and the script will:
+# 📦 **proxmox-bun-vm**
+### _Automatic Bun-Ready Ubuntu VM Installer for Proxmox VE_
+Created by **Wesley Faulkner**
 
 ---
 
-## ✅ **What This Script Does**
+## 🚀 Overview
 
-- Auto-detects your **cloud-init template VM**  
-- Auto-selects:
-  - The next free **VMID**
-  - Suitable **storage**
-  - Appropriate **network bridge**
-  - An SSH public key from `/root/.ssh`  
-- Clones a new VM from the template  
-- Adds cloud-init user-data to:
-  - Create a `developer` user with sudo  
-  - Inject your SSH key  
-  - Install **curl**  
-  - Install **Bun** on first boot  
-- Boots the VM and prints instructions on how to connect
+`proxmox-bun-vm` is a one-command installer that creates a fully configured **Ubuntu VM** on **Proxmox VE** and automatically installs:
 
-No configuration required. No editing variables. No guessing VMIDs or storage names.
+- ⚡ **Bun** (JavaScript runtime)
+- 🔐 SSH access for a user (`developer`)
+- 📦 Cloud-init provisioning
+- 🖧 Network configuration via DHCP
+- 📝 Logging and error handling
+
+**No template VM required** — the script downloads the official Ubuntu Cloud Image and builds everything from scratch, just like the official Proxmox community scripts.
 
 ---
 
-## 🚀 **Quick Install Command**
+## 🧩 One-liner Install
 
-Run this **on your Proxmox VE host** as root:
+Run this directly on any **Proxmox VE node** as **root**:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/wesley83/proxmox-bun-vm/main/bun-vm.sh)"
 ```
 
-Or the shorter version:
+That’s it.  
+The script will:
+
+- Detect storage, bridge, SSH keys, VMID  
+- Download Ubuntu  
+- Create and configure a VM  
+- Install Bun  
+- Attempt to auto-detect VM IP  
+
+---
+
+## ✨ Features
+
+- 🚫 **No prerequisites** — no cloud-init template required  
+- 🧠 **Auto-detects storage**, network bridge, available VMID  
+- 🔑 **Injects your SSH key** from `/root/.ssh`  
+- 📦 **Cloud-init provisioning** (user, packages, Bun install)  
+- 🖥️ **Auto IP detection** for quick SSH access  
+- 🧹 **Cleanup and rollback** on error  
+- 🎨 **Beautiful CLI banner** with version + repo link  
+- 📝 Logs everything to: `/var/log/bun-vm-<VMID>.log`  
+
+---
+
+## 🧰 Requirements
+
+| Requirement | Description |
+|------------|-------------|
+| Proxmox VE 7/8/9 | Runs directly on a node (not inside a VM) |
+| `local` storage | Must have **Snippets** enabled *(once only)* |
+| SSH key | Must exist in `/root/.ssh/id_ed25519.pub` or `id_rsa.pub` |
+
+### Enable Snippets on `local` (Required Once)
+
+Proxmox GUI →  
+**Datacenter → Storage → local → Edit → Check `Snippets` → Save**
+
+---
+
+## ⚙️ Optional Flags
+
+You can customize the VM with flags:
+
+| Flag | Meaning | Default |
+|------|----------|----------|
+| `--memory <MB>` | VM RAM | `4096` |
+| `--cores <N>` | CPU cores | `2` |
+| `--disk <SIZE>` | Disk size | `20G` |
+| `--ubuntu <codename>` | Ubuntu version (`noble`, `jammy`, etc.) | `noble` |
+
+### Example:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/wesley83/proxmox-bun-vm/main/bun-vm.sh | bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/wesley83/proxmox-bun-vm/main/bun-vm.sh)" --   --memory 8192   --cores 4   --disk 40G   --ubuntu jammy
 ```
 
 ---
 
-## 📦 **Prerequisites**
+## 🔐 Default VM Configuration
 
-Before running the script:
+| Setting | Value |
+|---------|--------|
+| OS | Ubuntu Cloud Image |
+| User | `developer` |
+| Auth | Your root SSH public key |
+| Network | DHCP via `vmbr0` (or first available bridge) |
+| Bun Install | Performed via cloud-init |
 
-### 1. You must have a **cloud-init template VM**
-
-Typical examples:
-- Ubuntu 22.04 cloud image  
-- Debian cloud image  
-
-Convert a VM into a template:
-
-```bash
-qm template <vmid>
-```
-
----
-
-### 2. Enable **Snippets** on storage `local`
-
-In Proxmox:
-
-- **Datacenter → Storage → local → Edit**  
-- Check ✅ **Snippets**  
-- Save  
-
----
-
-### 3. Have an SSH key available
-
-The script looks for one of these:
-
-```
-/root/.ssh/id_ed25519.pub
-/root/.ssh/id_rsa.pub
-```
-
-Generate one if needed:
-
-```bash
-ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519
-```
-
----
-
-## 🧠 How It Works
-
-The script automatically:
-
-### 🔍 Detects a cloud-init template  
-Searches for any VM config with `template: 1`.
-
-### 🆕 Gets the next VMID  
-Using:
-
-```bash
-pvesh get /cluster/nextid
-```
-
-### 💾 Detects storage  
-Prefers `local-lvm`, falls back to the first active storage.
-
-### 🌐 Detects a network bridge  
-Prefers `vmbr0`, falls back to the first available `vmbr*`.
-
-### 🔑 Detects your SSH key  
-Uses the first matching public key found in `/root/.ssh`.
-
-### 📝 Generates cloud-init user-data  
-Includes the Bun installation commands.
-
----
-
-## 🧩 Result
-
-After running the installer, you’ll have:
-
-- A fresh Bun-ready VM  
-- A `developer` user with sudo  
-- Your SSH key authorized  
-- Bun installed and ready to run  
-
-SSH in:
+SSH in using:
 
 ```bash
 ssh developer@<vm-ip>
 ```
 
-Verify Bun:
+Check Bun:
 
 ```bash
 bun --version
@@ -138,32 +108,45 @@ bun --version
 
 ---
 
-## 💡 Why This Script Exists
+## 🐞 Troubleshooting
 
-Bun is a fast, modern JavaScript runtime perfect for:
+### ❗ "Storage 'local' does not support snippets"
+Enable snippets:
 
-- APIs  
-- Microservices  
-- Dev environments  
-- Prototyping  
-- Teaching  
+> Datacenter → Storage → local → Edit → Check `Snippets`
 
-This script makes spinning up a Bun VM effortless.
+### ❗ "Could not detect VM IP"
+Some networks block ARP discovery. Just open the VM console and run:
+
+```bash
+ip a
+```
+
+Or check your DHCP leases.
+
+### ❗ Script aborted, VM auto-deleted
+If something goes wrong, the script automatically:
+
+- Stops the VM  
+- Removes it  
+- Deletes temporary images  
+
+Check the log file:
+
+```
+/var/log/bun-vm-<VMID>.log
+```
 
 ---
 
-## ⭐ Contributions Welcome
+## 👤 Author
 
-Open an issue or PR if you'd like:
-
-- Flags for CPU/RAM  
-- Auto-detected VM IP  
-- Additional runtime installers  
-- Multi-VM creation  
-- Enhanced logging  
+Created by: **Wesley Faulkner**  
+GitHub: https://github.com/wesley83  
+Project: https://github.com/wesley83/proxmox-bun-vm  
 
 ---
 
 ## 📄 License
 
-MIT — free to use, fork, or extend.
+MIT License — feel free to fork, modify, and contribute.
