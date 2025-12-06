@@ -38,7 +38,6 @@ OK()    { echo "${GREEN}[OK]${RESET}    $*"; }
 SCRIPT_VERSION="v1.0.0"
 REPO_URL="https://github.com/wesley83/proxmox-bun-vm"
 
-# Dedicated colors for banner
 if [ -t 1 ]; then
   C_BLUE="\033[34m"
   C_CYAN="\033[36m"
@@ -49,7 +48,6 @@ else
   C_BLUE=""; C_CYAN=""; C_GREEN=""; C_BOLD=""; C_RESET=""
 fi
 
-# Try fancy ASCII banner (fallback if environment is weird)
 if printf "█" | grep -q "█" >/dev/null 2>&1; then
   printf "${C_GREEN}${C_BOLD}"
   cat <<'EOF'
@@ -84,6 +82,11 @@ UBUNTU_CODENAME="noble"   # 24.04 LTS; can also use "jammy"
 VM_USER="developer"
 SHOW_HELP=0
 
+# Snippet storage:
+# - "auto"  => auto-detect first storage with 'snippets' content
+# - "<id>"  => use that explicit storage ID
+SNIPPET_STORAGE_ID="auto"
+
 print_help() {
   cat <<EOF
 ${BOLD}Bun VM Installer for Proxmox VE${RESET}
@@ -93,6 +96,7 @@ This script:
   - Installs Bun for user "${VM_USER}"
   - Injects your SSH key from /root/.ssh
   - Auto-detects storage, bridge, and VMID
+  - Uses '${SNIPPET_STORAGE_ID}' mode for cloud-init snippets (auto-detect by default)
   - Attempts to auto-detect the VM's IP
 
 ${BOLD}Usage:${RESET}
@@ -104,11 +108,6 @@ ${BOLD}Options:${RESET}
   -d, --disk   <SIZE>     Disk size (default: ${DISK_SIZE})
   -u, --ubuntu <codename> Ubuntu codename (noble, jammy, etc.; default: ${UBUNTU_CODENAME})
   -h, --help              Show this help message and exit
-
-${BOLD}Examples:${RESET}
-  bun-vm.sh
-  bun-vm.sh --memory 8192 --cores 4 --disk 40G
-  bun-vm.sh --ubuntu jammy
 EOF
 }
 
@@ -176,10 +175,17 @@ mkdir -p "$LOG_DIR"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 INFO "Log file: ${LOG_FILE}"
+INFO "Script version: ${SCRIPT_VERSION}"
+INFO "Repo: ${REPO_URL}"
 INFO "Using VMID: ${VM_ID}"
 INFO "VM Name: ${VM_NAME}"
 INFO "Ubuntu codename: ${UBUNTU_CODENAME}"
 INFO "Resources: ${MEMORY_MB} MB RAM, ${CORES} cores, disk ${DISK_SIZE}"
+INFO "Snippet storage mode: ${SNIPPET_STORAGE_ID}"
+
+# Snapshot current storage state for troubleshooting
+INFO "Current storage status:"
+pvesm status || WARN "pvesm status failed (non-fatal if environment is odd)"
 
 ############################################
 # Cleanup on error
@@ -192,8 +198,8 @@ cleanup() {
     ERROR "Script failed with exit code ${exit_code}."
     if [ "$VM_CREATED" -eq 1 ]; then
       WARN "Cleaning up VM ${VM_ID}..."
-      qm stop "$VM_ID" >/dev/null 2>&1 || true
-      qm destroy "$VM_ID" --purge >/dev/null 2>&1 || true
+      qm stop "${VM_ID}" >/dev/null 2>&1 || true
+      qm destroy "${VM_ID}" --purge >/dev/null 2>&1 || true
       OK "Destroyed VM ${VM_ID} due to failure."
     fi
     if [ -n "${IMG_FILE}" ] && [ -f "${IMG_FILE}" ]; then
@@ -206,9 +212,9 @@ cleanup() {
 trap cleanup EXIT
 
 ############################################
-# Storage detection
+# Storage detection (for VM disks)
 ############################################
-INFO "Detecting storage..."
+INFO "Detecting storage for VM disks..."
 
 if pvesm status | awk 'NR>1{print $1,$3}' | grep -q '^local-lvm active'; then
   STORAGE="local-lvm"
@@ -221,23 +227,68 @@ if [ -z "${STORAGE:-}" ]; then
   exit 1
 fi
 
-OK "Using storage: ${STORAGE}"
+OK "Using storage for VM disks: ${STORAGE}"
 
 ############################################
-# Verify 'local' supports snippets
+# Snippet storage auto-detect / verify
 ############################################
-INFO "Checking that storage 'local' supports snippets..."
+INFO "Detecting snippet storage (content type: snippets)..."
 
-if ! pvesm status --verbose 2>/dev/null | awk '
-  $1=="local" && $0 ~ /snippets/ {found=1}
+if [ "${SNIPPET_STORAGE_ID:-auto}" = "auto" ] || [ -z "${SNIPPET_STORAGE_ID}" ]; then
+  INFO "Snippet storage in AUTO mode. Searching for storages with 'snippets' enabled..."
+  SNIPPET_STORAGES="$(pvesm status --verbose 2>/dev/null | awk 'NR>1 && $0 ~ /snippets/ {print $1}')"
+  if [ -z "${SNIPPET_STORAGES}" ]; then
+    ERROR "No storage with 'snippets' content type found."
+    ERROR "Enable 'Snippets' on a Directory storage in Datacenter -> Storage -> <storage> -> Edit."
+    exit 1
+  fi
+  INFO "Storages with 'snippets' enabled: ${SNIPPET_STORAGES}"
+  # Choose the first one
+  SNIPPET_STORAGE_ID="$(printf '%s\n' ${SNIPPET_STORAGES} | head -n1)"
+  OK "Auto-selected snippet storage: ${SNIPPET_STORAGE_ID}"
+else
+  INFO "Snippet storage explicitly set to: ${SNIPPET_STORAGE_ID}"
+fi
+
+INFO "Verifying that storage '${SNIPPET_STORAGE_ID}' supports 'snippets'..."
+
+if ! pvesm status --verbose 2>/dev/null | awk -v id="${SNIPPET_STORAGE_ID}" '
+  NR>1 && $1==id && $0 ~ /snippets/ {found=1}
   END {exit !found}
 '; then
-  ERROR "Storage 'local' does not support snippets."
-  ERROR "Enable 'Snippets' content for 'local' in Datacenter -> Storage -> local -> Edit."
+  ERROR "Storage '${SNIPPET_STORAGE_ID}' does not support 'snippets'."
+  ERROR "Enable 'Snippets' content for '${SNIPPET_STORAGE_ID}' in Datacenter -> Storage -> ${SNIPPET_STORAGE_ID} -> Edit."
   exit 1
 fi
 
-OK "Storage 'local' has snippets enabled."
+OK "Storage '${SNIPPET_STORAGE_ID}' confirmed to have 'snippets' content."
+
+# Log the full verbose line for this storage for debugging
+SNIPPET_STORAGE_LINE="$(pvesm status --verbose 2>/dev/null | awk -v id="${SNIPPET_STORAGE_ID}" 'NR>1 && $1==id {print; exit}')"
+INFO "Snippet storage definition: ${SNIPPET_STORAGE_LINE}"
+
+# Determine filesystem path for snippet storage (Directory storage)
+INFO "Locating path for snippet storage '${SNIPPET_STORAGE_ID}'..."
+
+SNIPPET_BASE_PATH="$(pvesm status --verbose 2>/dev/null | awk -v id="${SNIPPET_STORAGE_ID}" '
+  NR>1 && $1==id {
+    for (i=1;i<=NF;i++) {
+      if ($i ~ /^path=/) {
+        sub("path=","",$i);
+        print $i;
+        exit
+      }
+    }
+  }')"
+
+if [ -z "${SNIPPET_BASE_PATH:-}" ]; then
+  ERROR "Could not determine filesystem path for storage '${SNIPPET_STORAGE_ID}'."
+  ERROR "Make sure it is a Directory-type storage with a 'path=' configured."
+  exit 1
+fi
+
+SNIPPET_DIR="${SNIPPET_BASE_PATH}/snippets"
+INFO "Snippet files will be stored under: ${SNIPPET_DIR}"
 
 ############################################
 # Bridge detection
@@ -247,7 +298,7 @@ INFO "Detecting network bridge..."
 if grep -q '^auto vmbr0' /etc/network/interfaces 2>/dev/null; then
   BRIDGE="vmbr0"
 else
-  BRIDGE=$(grep -E '^auto vmbr[0-9]+' /etc/network/interfaces 2>/dev/null | awk '{print $2}' | head -n1 || true)
+  BRIDGE="$(grep -E '^auto vmbr[0-9]+' /etc/network/interfaces 2>/dev/null | awk '{print $2}' | head -n1 || true)"
 fi
 
 if [ -z "${BRIDGE:-}" ]; then
@@ -307,15 +358,13 @@ VM_CREATED=1
 OK "Created VM config."
 
 ############################################
-# Import disk and attach (simplified)
+# Import disk and attach
 ############################################
 INFO "Importing disk into storage ${STORAGE}..."
 
 qm importdisk "${VM_ID}" "${IMG_FILE}" "${STORAGE}" --format qcow2
 
-# Proxmox consistently names imported disk as vm-<VMID>-disk-0
 DISK_REF="${STORAGE}:vm-${VM_ID}-disk-0"
-
 qm set "${VM_ID}" --scsi0 "${DISK_REF}" --bootdisk scsi0
 OK "Attached disk ${DISK_REF} to VM ${VM_ID}."
 
@@ -336,7 +385,8 @@ qm set "${VM_ID}" --ipconfig0 "ip=dhcp"
 ############################################
 # Cloud-init user-data: install Bun
 ############################################
-SNIPPET_DIR="/var/lib/vz/snippets"
+INFO "Preparing cloud-init user-data for Bun installation..."
+
 mkdir -p "${SNIPPET_DIR}"
 USERDATA_FILE="${SNIPPET_DIR}/bun-${VM_ID}-userdata.yaml"
 
@@ -357,8 +407,8 @@ runcmd:
   - [ bash, -lc, "echo 'export PATH=\\\"\\\\\$HOME/.bun/bin:\\\\\$PATH\\\"' >> /home/${VM_USER}/.bashrc" ]
 EOF
 
-qm set "${VM_ID}" --cicustom "user=local:snippets/$(basename "${USERDATA_FILE}")"
-OK "Cloud-init user-data attached."
+qm set "${VM_ID}" --cicustom "user=${SNIPPET_STORAGE_ID}:snippets/$(basename "${USERDATA_FILE}")"
+OK "Cloud-init user-data attached via storage '${SNIPPET_STORAGE_ID}'."
 
 ############################################
 # Start VM
@@ -377,7 +427,7 @@ TAP_IFACE="tap${VM_ID}i0"
 
 for i in {1..24}; do
   if ip link show "${TAP_IFACE}" >/dev/null 2>&1; then
-    VM_IP=$(ip -4 neigh show dev "${TAP_IFACE}" | awk '{print $1}' | head -n1 || true)
+    VM_IP="$(ip -4 neigh show dev "${TAP_IFACE}" | awk '{print $1}' | head -n1 || true)"
     if [ -n "${VM_IP}" ]; then
       break
     fi
@@ -395,7 +445,6 @@ fi
 ############################################
 # Success summary
 ############################################
-# Disable cleanup trap on success
 trap - EXIT
 
 if [ -n "${IMG_FILE}" ] && [ -f "${IMG_FILE}" ]; then
@@ -409,14 +458,15 @@ echo
 echo "=============================================="
 echo "   Bun-ready VM deployed"
 echo "----------------------------------------------"
-echo " VMID       : ${VM_ID}"
-echo " Name       : ${VM_NAME}"
-echo " User       : ${VM_USER}"
-echo " Storage    : ${STORAGE}"
-echo " Bridge     : ${BRIDGE}"
-echo " Log file   : ${LOG_FILE}"
+echo " VMID         : ${VM_ID}"
+echo " Name         : ${VM_NAME}"
+echo " User         : ${VM_USER}"
+echo " Disk storage : ${STORAGE}"
+echo " Snippet stor.: ${SNIPPET_STORAGE_ID}"
+echo " Bridge       : ${BRIDGE}"
+echo " Log file     : ${LOG_FILE}"
 if [ -n "${VM_IP}" ]; then
-  echo " VM IP      : ${VM_IP}"
+  echo " VM IP        : ${VM_IP}"
 fi
 echo "=============================================="
 echo
