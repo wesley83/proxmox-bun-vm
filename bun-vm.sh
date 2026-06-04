@@ -703,7 +703,7 @@ echo " Snippets    : ${SNIPPET_STORAGE_ID}"
 echo " Bridge      : ${BRIDGE}"
 echo " Log file    : ${LOG_FILE}"
 [[ -n "${VM_IP}" ]] && echo " VM IP       : ${VM_IP}"
-echo " Initial pwd : ${RANDOM_PASSWORD}  (change on first console login)"
+echo " Console login : ${VM_USER} / ${RANDOM_PASSWORD}  (change on first login)"
 echo "=============================================="
 echo
 echo "SSH into your VM:"
