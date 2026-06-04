@@ -484,14 +484,12 @@ OK "Loaded ${VALID_KEY_COUNT} SSH key(s) from ${SSH_KEY}"
 
 # Generate a random initial password for console access. The user must change
 # it on first login (chpasswd.expire: True in the user-data).
-# Approach: filter /dev/urandom to alphanumerics only, take first 20 chars.
-# This is simpler and more reliable than base64+tr-cut, which can produce
-# <20 chars when the base64 output contains several '+' or '/' characters.
-# 20 alphanumeric chars ≈ 119 bits of entropy.
+# Approach: filter /dev/urandom to alphanumerics only, take first 8 chars,
+# excluding confusable chars (I, l). 8 chars from 59-char set ≈ 47 bits entropy.
 # Note: || true suppresses SIGPIPE exit code (141) from pipefail when head
-# closes the pipe after 20 bytes — bash versions differ on whether variable
+# closes the pipe after 8 bytes — bash versions differ on whether variable
 # assignments fully exempt command substitution from set -e with pipefail.
-RANDOM_PASSWORD="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20 || true)"
+RANDOM_PASSWORD="$(LC_ALL=C tr -dc 'A-HJ-Za-km-z0-9' </dev/urandom | head -c 8 || true)"
 
 ############################################
 # Download Ubuntu cloud image
