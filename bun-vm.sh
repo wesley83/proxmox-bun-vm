@@ -706,7 +706,7 @@ echo " Log file    : ${LOG_FILE}"
 echo " Console login : ${VM_USER} / ${RANDOM_PASSWORD}  (change on first login)"
 echo "=============================================="
 echo
-echo "SSH into your VM:"
+echo "SSH into your VM, then verify Bun:"
 if [[ -n "$VM_IP" ]]; then
   echo "  ssh ${VM_USER}@${VM_IP}"
 else
