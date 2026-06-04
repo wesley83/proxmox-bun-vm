@@ -264,7 +264,7 @@ INFO "Detecting VM disk storage..."
 if pvesm status | awk 'NR>1{print $1,$3}' | grep '^local-lvm active' >/dev/null; then
   STORAGE="local-lvm"
 else
-  STORAGE="$(pvesm status | awk 'NR>1 && $3=="active"{print $1;exit}')"
+  STORAGE="$(pvesm status | awk 'NR>1 && $3=="active"{print $1;exit}' || true)"
 fi
 
 if [[ -z "${STORAGE}" ]]; then
@@ -488,7 +488,10 @@ OK "Loaded ${VALID_KEY_COUNT} SSH key(s) from ${SSH_KEY}"
 # This is simpler and more reliable than base64+tr-cut, which can produce
 # <20 chars when the base64 output contains several '+' or '/' characters.
 # 20 alphanumeric chars ≈ 119 bits of entropy.
-RANDOM_PASSWORD="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)"
+# Note: || true suppresses SIGPIPE exit code (141) from pipefail when head
+# closes the pipe after 20 bytes — bash versions differ on whether variable
+# assignments fully exempt command substitution from set -e with pipefail.
+RANDOM_PASSWORD="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20 || true)"
 
 ############################################
 # Download Ubuntu cloud image
@@ -643,7 +646,7 @@ for _ in {1..24}; do
       # Older kernels / busy bridges may not include lladdr in 'neigh show'
       # output. Fall back to the first neighbor, but log a warning so the
       # user knows the result is best-effort.
-      VM_IP="$(ip -4 neigh show dev "$TAP" | awk 'NR==1{print $1}')"
+      VM_IP="$(ip -4 neigh show dev "$TAP" | awk 'NR==1{print $1}' || true)"
     fi
     [[ -n "$VM_IP" ]] && break
   fi
