@@ -645,13 +645,18 @@ for _ in {1..24}; do
     if [[ -z "$VM_IP" ]]; then
       VM_IP="$(ip -4 neigh show dev "$TAP" | awk 'NR==1{print $1}' || true)"
     fi
+    # ARP fallback: search the full table by MAC (works when the entry
+    # hasn't yet been associated with the tap interface).
+    if [[ -z "$VM_IP" ]] && [[ -n "$VM_MAC" ]]; then
+      VM_IP="$(ip -4 neigh show | awk -v mac="$VM_MAC" 'tolower($0) ~ tolower(mac) {print $1; exit}' || true)"
+    fi
 
     # Reliable path: QEMU Guest Agent. Works when ARP is stale or the bridge
     # is busy. Queries the IP directly from inside the VM. Only available
     # once qemu-guest-agent is installed and running (via cloud-init).
     if [[ -z "$VM_IP" ]] && command -v python3 >/dev/null 2>&1; then
       VM_IP="$(
-        qm guest cmd "$VM_ID" network-get-interfaces 2>/dev/null | \
+        qm guest network-get-interfaces "$VM_ID" 2>/dev/null | \
           python3 -c '
 import json, sys
 for iface in json.load(sys.stdin):
@@ -662,7 +667,7 @@ for iface in json.load(sys.stdin):
             print(addr["ip-address"])
             sys.exit(0)
 sys.exit(1)
-'
+' 2>/dev/null
       )" || true
     fi
 
