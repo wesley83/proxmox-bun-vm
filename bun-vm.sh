@@ -581,6 +581,7 @@ chpasswd:
 
 packages:
   - curl
+  - unzip
 
 # write_files avoids the brittle runcmd escaping we used to use for the
 # /etc/profile.d/bun.sh fragment. The single backslash below is what
@@ -597,7 +598,7 @@ write_files:
 runcmd:
   # Install Bun as the developer user. Writes a status file so the
   # provisioning script can detect success/failure without parsing logs.
-  - [ bash, -lc, "su - ${VM_USER} -c 'curl -fsSL https://bun.sh/install | bash' && touch /var/log/bun-install.ok || touch /var/log/bun-install.fail" ]
+  - [ bash, -lc, "su - ${VM_USER} -c 'set -o pipefail; curl -fsSL https://bun.sh/install | bash' && touch /var/log/bun-install.ok || touch /var/log/bun-install.fail" ]
   # Note: we intentionally do NOT append to ~/.bashrc. The /etc/profile.d/
   # fragment above covers login shells (SSH sessions, console). For
   # interactive non-login bash (e.g., opening a fresh terminal in a desktop
