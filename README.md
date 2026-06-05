@@ -66,7 +66,6 @@ The script will:
 | **PVE 8.x** | ✅ **Recommended** | Current stable; all `qm` flags used are first-class documented syntax. |
 | **PVE 9.x** | ✅ Supported | Forward-compatible. The script uses only currently-documented `qm(1)` flags, with no deprecated syntax in play. |
 | **PVE 7.x** | ⚠️ Works (EOL) | Supported by the script, but PVE 7 reached end-of-life in mid-2024. Fine for labs; not recommended for new production deployments. |
-| **PVE 6.4** | 🟡 Partially works (untested) | Uses `qm importdisk` (works on 6.4), but `fstrim_cloned_disks=1` requires PVE 7.2+ — `--agent enabled=1` alone would work. The script has not been validated there. |
 
 The script performs **no runtime `pveversion` check** — it relies solely on the stability of the `qm`, `pvesm`, and `pvesh` CLIs. Any PVE release that ships those CLIs at the documented `qm(1)`/`pvesm(1)`/`pvesh(1)` man-page level should work.
 
