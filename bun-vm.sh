@@ -598,6 +598,10 @@ write_files:
       export PATH="/home/${VM_USER}/.bun/bin:\$PATH"
 
 runcmd:
+  # Start the QEMU Guest Agent so the host can query the VM's IP via
+  # qm guest cmd <vmid> network-get-interfaces. The package is installed
+  # above but may not auto-start (static preset in Ubuntu 26.04+).
+  - [ systemctl, start, qemu-guest-agent ]
   # Install Bun as the developer user. Writes a status file so the
   # provisioning script can detect success/failure without parsing logs.
   - [ bash, -lc, "sudo -u ${VM_USER} -i bash -c 'set -o pipefail && curl -fsSL -o /tmp/bun-install.sh https://bun.sh/install && bash /tmp/bun-install.sh' 2>/var/log/bun-install-err.log && touch /var/log/bun-install.ok || touch /var/log/bun-install.fail" ]
@@ -664,7 +668,7 @@ for _ in {1..24}; do
     # once qemu-guest-agent is installed and running (via cloud-init).
     if [[ -z "$VM_IP" ]] && command -v python3 >/dev/null 2>&1; then
       VM_IP="$(
-        qm guest network-get-interfaces "$VM_ID" 2>/dev/null | \
+        qm guest cmd "$VM_ID" network-get-interfaces 2>/dev/null | \
           python3 -c '
 import json, sys
 for iface in json.load(sys.stdin):
