@@ -57,7 +57,7 @@ The script will:
 | Proxmox VE 7/8/9 | Runs directly on a node (not inside a VM) — see [Supported Proxmox VE Versions](#-supported-proxmox-ve-versions) below |
 | `local` storage | Must have **Snippets** enabled *(once only)* |
 | SSH key | Must exist in `/root/.ssh/id_ed25519.pub` or `id_rsa.pub` (or any `.pub` file with one key per line) |
-| `curl`, `qemu-img` | Pre-installed on Proxmox; verified by the script |
+| `curl`, `python3`, `qemu-img` | Pre-installed on Proxmox; verified by the script (`python3` has a graceful fallback) |
 
 ### Supported Proxmox VE Versions
 
@@ -109,7 +109,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/wesley83/proxmox-bun-vm/
 | Network | DHCP via `vmbr0` (or first available bridge) |
 | CPU | `host` (see [Known Limitations](#-known-limitations)) |
 | Machine | `q35` |
-| QEMU Guest Agent | Enabled (with `fstrim_cloned_disks=1` — first backup reclaims cloud-image slack) |
+| QEMU Guest Agent | Installed and started inside the VM (`qemu-guest-agent`) plus host-side `--agent enabled=1,fstrim_cloned_disks=1` — used for reliable IP detection |
 | Bun Install | Performed via cloud-init (`runcmd`) |
 
 SSH in using:
@@ -152,7 +152,7 @@ Expected output for step 3:
 1.x.y
 ```
 
-If `bun --version` is missing from the output, Bun's `runcmd` hasn't run yet — wait ~60s and retry, or check `/var/log/cloud-init-output.log` inside the VM.
+If `bun --version` is missing from the output, Bun's `runcmd` hasn't run yet — wait ~60s and retry, or check `/var/log/cloud-init-output.log` inside the VM. If Bun installation failed, check `/var/log/bun-install-err.log` inside the VM for the installer's error output.
 
 ---
 
@@ -164,16 +164,16 @@ Enable snippets:
 > Datacenter → Storage → local → Edit → Check `Snippets`
 
 ### ❗ "Could not detect VM IP"
-The script polls the bridge neighbor table for **up to 2 minutes** (24 attempts
-× 5s) after `qm start`. If the timer expires, either the VM hasn't finished
-booting, ARP discovery is blocked, or the bridge is too busy to disambiguate
-the VM's MAC. Some networks block ARP discovery. Just open the VM console and run:
+The script tries two methods in parallel:
 
-```bash
-ip a
-```
+1. **ARP neighbor table** on the tap interface (fast, works within seconds of DHCP lease)
+2. **QEMU Guest Agent** (`qm guest cmd <vmid> network-get-interfaces`) — queries the IP directly from inside the VM (reliable, but only after `qemu-guest-agent` is installed and running)
 
-Or check your DHCP leases.
+Both are polled for **up to 2 minutes** (24 attempts × 5s). If the timer expires:
+
+- Check the script log: `cat /var/log/bun-vm-<VMID>.log | grep -E "VM MAC|neigh:|Diagnostics"` — this shows the detected MAC, what `ip neigh` returned each iteration, and a final diagnostic dump.
+- Verify the guest agent is running inside the VM: `systemctl status qemu-guest-agent`
+- Open the VM console and run `ip a`, or check your DHCP leases.
 
 If IP detection succeeds but the **detected IP is wrong** (e.g., you get the
 gateway or a sibling VM), the script's MAC filter didn't match. The fallback
@@ -197,6 +197,16 @@ If `ssh_authorized_keys` is empty or missing, your key wasn't embedded — verif
 re-run the script with a fresh VMID.
 
 ### ❗ "bun: command not found" inside the VM
+First, check whether the Bun install succeeded or failed:
+
+```bash
+cat /var/log/bun-install.ok /var/log/bun-install.fail 2>/dev/null
+cat /var/log/bun-install-err.log 2>/dev/null
+```
+
+- If `bun-install.ok` exists, Bun was installed — see PATH issue below.
+- If `bun-install.fail` exists, the installer failed — check `bun-install-err.log` for the error.
+
 `/etc/profile.d/bun.sh` is sourced by **login shells** (SSH sessions, console).
 For interactive **non-login** shells (e.g., a fresh terminal in a desktop
 session), bun isn't on `$PATH` yet. Either run `source /etc/profile.d/bun.sh`
