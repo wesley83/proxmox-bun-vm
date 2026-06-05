@@ -8,7 +8,7 @@
 # This script was created by:
 #   Wesley Faulkner
 #
-# Version: v1.2.0
+# Version: v1.3.0
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
@@ -35,7 +35,7 @@ OK()    { echo "${GREEN}[OK]${RESET}    $*"; }
 ############################################
 # Banner
 ############################################
-SCRIPT_VERSION="v1.2.0"
+SCRIPT_VERSION="v1.3.0"
 REPO_URL="https://github.com/wesley83/proxmox-bun-vm"
 
 printf "${GREEN}${BOLD}"
