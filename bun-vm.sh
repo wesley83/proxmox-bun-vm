@@ -595,8 +595,9 @@ write_files:
       export PATH="/home/${VM_USER}/.bun/bin:\$PATH"
 
 runcmd:
-  # Install Bun as the developer user.
-  - [ bash, -lc, "su - ${VM_USER} -c 'curl -fsSL https://bun.sh/install | bash'" ]
+  # Install Bun as the developer user. Writes a status file so the
+  # provisioning script can detect success/failure without parsing logs.
+  - [ bash, -lc, "su - ${VM_USER} -c 'curl -fsSL https://bun.sh/install | bash' && touch /var/log/bun-install.ok || touch /var/log/bun-install.fail" ]
   # Note: we intentionally do NOT append to ~/.bashrc. The /etc/profile.d/
   # fragment above covers login shells (SSH sessions, console). For
   # interactive non-login bash (e.g., opening a fresh terminal in a desktop
@@ -658,23 +659,37 @@ if [[ -n "$VM_IP" ]]; then
   INFO "Waiting for cloud-init and Bun install to complete..."
   BUN_READY=0
   for _ in {1..60}; do
+    # First check if cloud-init has finished its runcmd phase
     if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes \
-       "${VM_USER}@${VM_IP}" '~/.bun/bin/bun --version' >/dev/null 2>&1; then
-      OK "Bun is installed and reachable via SSH."
-      BUN_READY=1
+       "${VM_USER}@${VM_IP}" 'test -f /var/log/bun-install.ok -o -f /var/log/bun-install.fail' >/dev/null 2>&1; then
+      if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -o BatchMode=yes \
+         "${VM_USER}@${VM_IP}" 'test -f /var/log/bun-install.ok' >/dev/null 2>&1; then
+        OK "Bun is installed and reachable via SSH."
+        BUN_READY=1
+      else
+        WARN "Bun installation failed. Check inside the VM:"
+        WARN "  cat /var/log/bun-install.fail"
+        WARN "  cat /var/log/cloud-init-output.log | tail -n 50"
+        BUN_READY=1
+      fi
       break
     fi
     sleep 5
   done
   if [[ "$BUN_READY" -ne 1 ]]; then
     WARN "Bun did not become ready within 5 minutes."
-    WARN "The VM is up and SSH works (otherwise this loop would have errored),"
-    WARN "but cloud-init's runcmd may still be installing. Check inside the VM:"
+    WARN "This means cloud-init's runcmd is still pending or the VM is"
+    WARN "still booting. Check inside the VM after cloud-init finishes:"
     WARN "  ssh ${VM_USER}@${VM_IP} 'tail -n 50 /var/log/cloud-init-output.log'"
+    WARN "  ssh ${VM_USER}@${VM_IP} 'cat /var/log/bun-install.ok /var/log/bun-install.fail 2>/dev/null || echo no status file found'"
   fi
 else
   WARN "Could not determine VM IP automatically (tapped ${TAP} for up to 2 minutes)."
   WARN "Find it via the VM console: 'ip a' — or check your router's DHCP leases."
+  WARN "Once connected, verify Bun:"
+  WARN "  ssh ${VM_USER}@<vm-ip> '~/.bun/bin/bun --version'"
+  WARN "If Bun is missing, check cloud-init's log inside the VM:"
+  WARN "  sudo tail -50 /var/log/cloud-init-output.log"
 fi
 
 ############################################
