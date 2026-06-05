@@ -31,6 +31,7 @@ INFO()  { echo "${BLUE}[INFO]${RESET}  $*"; }
 WARN()  { echo "${YELLOW}[WARN]${RESET}  $*"; }
 ERROR() { echo "${RED}[ERROR]${RESET} $*" >&2; }
 OK()    { echo "${GREEN}[OK]${RESET}    $*"; }
+DEBUG() { [[ "$DEBUG" -eq 1 ]] && echo "${CYAN}[DEBUG]${RESET} $*"; }
 
 ############################################
 # Banner
@@ -632,6 +633,7 @@ VM_MAC="$(
   qm config "$VM_ID" 2>/dev/null | \
     awk '/^net0:/{n=split($0,a,/[=, ]+/); for(i=1;i<=n;i++)if(a[i] ~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/){print toupper(a[i]);exit}}'
 )"
+INFO "VM MAC: ${VM_MAC:-unknown}"
 
 # Try for up to 2 minutes (24 * 5s). The tap interface only appears after
 # the VM has begun booting, so the early iterations are expected no-ops.
@@ -649,6 +651,12 @@ for _ in {1..24}; do
     # hasn't yet been associated with the tap interface).
     if [[ -z "$VM_IP" ]] && [[ -n "$VM_MAC" ]]; then
       VM_IP="$(ip -4 neigh show | awk -v mac="$VM_MAC" 'tolower($0) ~ tolower(mac) {print $1; exit}' || true)"
+    fi
+
+    # Diagnostic: log what we found each iteration
+    if [[ -z "$VM_IP" ]]; then
+      NEIGH_OUTPUT="$(ip -4 neigh show dev "$TAP" 2>&1)"
+      INFO "tap $TAP up; no IP yet (neigh: ${NEIGH_OUTPUT:-empty})"
     fi
 
     # Reliable path: QEMU Guest Agent. Works when ARP is stale or the bridge
@@ -669,6 +677,9 @@ for iface in json.load(sys.stdin):
 sys.exit(1)
 ' 2>/dev/null
       )" || true
+      if [[ -n "$VM_IP" ]]; then
+        INFO "QGA returned IP: ${VM_IP}"
+      fi
     fi
 
     [[ -n "$VM_IP" ]] && break
@@ -710,6 +721,10 @@ if [[ -n "$VM_IP" ]]; then
   fi
 else
   WARN "Could not determine VM IP automatically (tapped ${TAP} for up to 2 minutes)."
+  INFO "Diagnostics:"
+  INFO "  tap interface: $(ip link show "$TAP" 2>&1 || echo 'not found')"
+  INFO "  neigh table:  $(ip -4 neigh show dev "$TAP" 2>&1 || echo 'not found')"
+  INFO "  VM config:    $(qm config "$VM_ID" 2>&1 | grep -o 'net0[^,]*' || echo 'not found')"
   WARN "Find it via the VM console: 'ip a' — or check your router's DHCP leases."
   WARN "Once connected, verify Bun:"
   WARN "  ssh ${VM_USER}@<vm-ip> '~/.bun/bin/bun --version'"
