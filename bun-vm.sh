@@ -8,7 +8,7 @@
 # This script was created by:
 #   Wesley Faulkner
 #
-# Version: v1.3.0
+# Version: v1.3.1
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
@@ -36,7 +36,7 @@ DEBUG() { [[ "$DEBUG" -eq 1 ]] && echo "${CYAN}[DEBUG]${RESET} $*"; }
 ############################################
 # Banner
 ############################################
-SCRIPT_VERSION="v1.3.0"
+SCRIPT_VERSION="v1.3.1"
 REPO_URL="https://github.com/wesley83/proxmox-bun-vm"
 
 printf "${GREEN}${BOLD}"
