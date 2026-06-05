@@ -599,7 +599,7 @@ write_files:
 runcmd:
   # Install Bun as the developer user. Writes a status file so the
   # provisioning script can detect success/failure without parsing logs.
-  - [ bash, -lc, "su - ${VM_USER} -c 'set -o pipefail && curl -fsSL -o /tmp/bun-install.sh https://bun.sh/install && bash /tmp/bun-install.sh' 2>/var/log/bun-install-err.log && touch /var/log/bun-install.ok || touch /var/log/bun-install.fail" ]
+  - [ bash, -lc, "sudo -u ${VM_USER} -i bash -c 'set -o pipefail && curl -fsSL -o /tmp/bun-install.sh https://bun.sh/install && bash /tmp/bun-install.sh' 2>/var/log/bun-install-err.log && touch /var/log/bun-install.ok || touch /var/log/bun-install.fail" ]
   # Note: we intentionally do NOT append to ~/.bashrc. The /etc/profile.d/
   # fragment above covers login shells (SSH sessions, console). For
   # interactive non-login bash (e.g., opening a fresh terminal in a desktop
