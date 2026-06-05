@@ -582,6 +582,7 @@ chpasswd:
 packages:
   - curl
   - unzip
+  - qemu-guest-agent
 
 # write_files avoids the brittle runcmd escaping we used to use for the
 # /etc/profile.d/bun.sh fragment. The single backslash below is what
@@ -636,18 +637,35 @@ VM_MAC="$(
 # the VM has begun booting, so the early iterations are expected no-ops.
 for _ in {1..24}; do
   if ip link show "$TAP" >/dev/null 2>&1; then
+    # Fast path: ARP neighbor table (works within seconds of DHCP lease)
     if [[ -n "$VM_MAC" ]]; then
-      VM_IP="$(
-        ip -4 neigh show dev "$TAP" | \
-          awk -v mac="$VM_MAC" 'tolower($5) == tolower(mac) {print $1; exit}'
-      )"
+      VM_IP="$(ip -4 neigh show dev "$TAP" | \
+        awk -v mac="$VM_MAC" 'tolower($5) == tolower(mac) {print $1; exit}')" || true
     fi
     if [[ -z "$VM_IP" ]]; then
-      # Older kernels / busy bridges may not include lladdr in 'neigh show'
-      # output. Fall back to the first neighbor, but log a warning so the
-      # user knows the result is best-effort.
       VM_IP="$(ip -4 neigh show dev "$TAP" | awk 'NR==1{print $1}' || true)"
     fi
+
+    # Reliable path: QEMU Guest Agent. Works when ARP is stale or the bridge
+    # is busy. Queries the IP directly from inside the VM. Only available
+    # once qemu-guest-agent is installed and running (via cloud-init).
+    if [[ -z "$VM_IP" ]] && command -v python3 >/dev/null 2>&1; then
+      VM_IP="$(
+        qm guest cmd "$VM_ID" network-get-interfaces 2>/dev/null | \
+          python3 -c '
+import json, sys
+for iface in json.load(sys.stdin):
+    if iface.get("name") in ("lo",):
+        continue
+    for addr in iface.get("ip-addresses", []):
+        if addr.get("ip-address-type") == "ipv4":
+            print(addr["ip-address"])
+            sys.exit(0)
+sys.exit(1)
+'
+      )" || true
+    fi
+
     [[ -n "$VM_IP" ]] && break
   fi
   sleep 5
